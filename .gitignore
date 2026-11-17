@@ -1,0 +1,12 @@
+*.zip
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.xlsx
+*.csv
+*.json
+__pycache__/
+.env
+data/
+training_data/
