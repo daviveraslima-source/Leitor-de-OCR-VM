@@ -3,3 +3,5 @@ pillow>=10,<12
 pytesseract>=0.3.10,<1
 rapidfuzz>=3,<4
 waitress>=3,<4
+opencv-python-headless>=4.9,<5
+numpy>=1.26,<3
