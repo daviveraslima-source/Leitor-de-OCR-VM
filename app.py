@@ -84,33 +84,31 @@ def candidates(text, refs, colors):
     return {"REF":ref,"COR":cor,"status":status,"raw_ref_candidates":rawrefs[:12],"raw_color_candidates":rawcolors[:12]}
 
 def run_job(zip_path):
-    folder=ROOT/"images"
     try:
-        with LOCK: STATE.update(stage="extracting",processed=0,total=0,started_at=time.time())
-        folder.mkdir(exist_ok=True)
-        images=[]
+        with LOCK: STATE.update(stage="reading_zip",processed=0,total=0,started_at=time.time())
+        refs, colors=load_catalog()
         with zipfile.ZipFile(zip_path) as z:
             entries=[x for x in z.infolist() if x.filename.lower().endswith((".jpg",".jpeg",".png",".webp")) and not x.is_dir()]
             if len(entries)>5000 or sum(x.file_size for x in entries)>3_000_000_000: raise ValueError("ZIP too large")
-            for i,x in enumerate(entries):
-                if x.file_size>30_000_000:continue
-                p=folder/f"{i:05d}_{Path(x.filename).name}"
-                with z.open(x) as src, open(p,"wb") as dst: shutil.copyfileobj(src,dst)
-                images.append(p)
-        refs, colors=load_catalog()
-        with LOCK: STATE.update(stage="processing",total=len(images),catalog_refs=len(refs))
-        out=(ROOT/"results.jsonl").open("w",encoding="utf-8")
-        try:
-            for i,path in enumerate(images):
-                try:
-                    text=read_image(path)
-                    result=candidates(text,refs,colors)
-                except Exception as e:
-                    result={"REF":None,"COR":None,"status":"ERRO","error":str(e)[:180]}
-                out.write(json.dumps({"image":path.name,**result},ensure_ascii=False)+"\n")
-                out.flush()
-                with LOCK: STATE.update(processed=i+1,last_image=path.name)
-        finally: out.close()
+            with LOCK: STATE.update(stage="processing",total=len(entries),catalog_refs=len(refs))
+            out=(ROOT/"results.jsonl").open("w",encoding="utf-8")
+            try:
+                for i,entry in enumerate(entries):
+                    if entry.file_size>30_000_000:
+                        result={"REF":None,"COR":None,"status":"SKIPPED","error":"file too large"}
+                    else:
+                        try:
+                            from io import BytesIO
+                            with z.open(entry) as src:
+                                blob=src.read(30_000_001)
+                            if len(blob)>30_000_000:raise ValueError("image too large")
+                            result=candidates(read_image(BytesIO(blob)),refs,colors)
+                        except Exception as e:
+                            result={"REF":None,"COR":None,"status":"ERRO","error":str(e)[:180]}
+                    out.write(json.dumps({"image":Path(entry.filename).name,**result},ensure_ascii=False)+"\\n")
+                    out.flush()
+                    with LOCK: STATE.update(processed=i+1,last_image=Path(entry.filename).name)
+            finally: out.close()
         with LOCK: STATE.update(stage="completed",completed_at=time.time())
     except Exception as e:
         with LOCK: STATE.update(stage="failed",error=str(e),trace=traceback.format_exc()[-900:])
