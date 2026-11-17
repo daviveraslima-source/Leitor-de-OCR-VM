@@ -14,8 +14,8 @@ TOKEN = os.getenv("GREENISH_STATUS_TOKEN", "")
 STATE = {"stage":"awaiting_dataset", "processed":0, "total":0, "started_at":None}
 LOCK = threading.Lock()
 REF_RE = re.compile(r"(?<![A-Z0-9])([A-Z]{2,9}[A-Z0-9]{1,16})(?![A-Z0-9])")
-TAG_REF = re.compile(r"R[E3]?F\\s*[:.=/-]?\\s*([A-Z0-9]{4,24})")
-TAG_COR = re.compile(r"C[O0]R\\s*[:.=/-]?\\s*([0-9OQDBSILZG]{4})")
+TAG_REF = re.compile(r"R[E3]?F\s*[:.=/-]?\s*([A-Z0-9]{4,24})")
+TAG_COR = re.compile(r"C[O0]R\s*[:.=/-]?\s*([0-9OQDBSILZG]{4})")
 CODE4 = re.compile(r"(?<![0-9])([0-9]{4})(?![0-9])")
 CONV = str.maketrans({"O":"0","Q":"0","D":"0","B":"8","S":"5","I":"1","L":"1","Z":"2","G":"6"})
 MAX_UPLOAD = 400 * 1024 * 1024
@@ -105,7 +105,7 @@ def run_job(zip_path):
                             result=candidates(read_image(BytesIO(blob)),refs,colors)
                         except Exception as e:
                             result={"REF":None,"COR":None,"status":"ERRO","error":str(e)[:180]}
-                    out.write(json.dumps({"image":Path(entry.filename).name,**result},ensure_ascii=False)+"\\n")
+                    out.write(json.dumps({"image":Path(entry.filename).name,**result},ensure_ascii=False)+"\n")
                     out.flush()
                     with LOCK: STATE.update(processed=i+1,last_image=Path(entry.filename).name)
             finally: out.close()
