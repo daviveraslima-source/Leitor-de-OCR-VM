@@ -118,7 +118,24 @@ def health(): return jsonify({"ok":True})
 
 @app.get("/")
 def home():
-    return Response("<h2>Greenish OCR - REF / COR</h2><p>Servidor ativo. Upload do conjunto de fotos protegido por token.</p><p>Endpoints: GET /health, GET /status, POST /upload, POST /catalog, GET /results.</p>",mimetype="text/html")
+    return Response("""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Greenish OCR</title>
+<style>body{font-family:system-ui,Arial,sans-serif;max-width:720px;margin:38px auto;padding:0 20px;background:#fafcf9;color:#153b2c}section{background:white;border:1px solid #dce8df;border-radius:12px;padding:20px;margin:18px 0}input,button{display:block;margin:12px 0;width:100%;box-sizing:border-box;padding:12px;font:inherit}button{cursor:pointer;border:0;border-radius:8px;background:#15573d;color:white}small{color:#53655b}pre{white-space:pre-wrap;word-break:break-word}</style>
+<h1>Greenish — OCR REF / COR</h1><p>Envie o ZIP de etiquetas para analisar REF e COR. O código deste serviço é público; <strong>suas fotos e catálogo não são publicados no GitHub.</strong></p>
+<section><label>Token de acesso (Railway → Variables → GREENISH_STATUS_TOKEN)<input id="token" type="password" placeholder="Cole o token de acesso"></label>
+<label>Catálogo JSON (opcional, melhora validação)<input id="catalog" type="file" accept=".json"></label><button onclick="sendCatalog()">Enviar catálogo</button>
+<label>ZIP com as fotos<input id="zip" type="file" accept=".zip"></label><button onclick="sendZip()">Enviar ZIP e iniciar processamento</button>
+<small>Os dados serão enviados diretamente ao serviço protegido. Imagens sem leitura segura ficam marcadas para revisão.</small>
+<progress id="progress" max="100" value="0" style="width:100%"></progress><div id="message"></div></section>
+<section><button onclick="status()">Consultar andamento</button><button onclick="results()">Baixar resultados (JSONL)</button><pre id="state">Aguardando...</pre></section>
+<script>
+const token=()=>document.getElementById("token").value.trim();
+const auth=()=>({"Authorization":"Bearer "+token()});
+const msg=s=>document.getElementById("message").textContent=s;
+async function sendCatalog(){let f=document.getElementById("catalog").files[0];if(!f)return msg("Escolha o catálogo.");let r=await fetch("/catalog",{method:"POST",headers:{...auth(),"Content-Type":"application/json"},body:f});msg(await r.text());}
+function sendZip(){let f=document.getElementById("zip").files[0];if(!f)return msg("Escolha o ZIP.");let xhr=new XMLHttpRequest();xhr.open("POST","/upload");xhr.setRequestHeader("Authorization","Bearer "+token());xhr.setRequestHeader("Content-Type","application/zip");xhr.upload.onprogress=e=>{if(e.lengthComputable)document.getElementById("progress").value=100*e.loaded/e.total};xhr.onload=()=>msg(xhr.responseText);xhr.onerror=()=>msg("Falha de rede no envio");xhr.send(f);msg("Enviando ZIP...");}
+async function status(){let r=await fetch("/status",{headers:auth()});document.getElementById("state").textContent=await r.text();}
+async function results(){let r=await fetch("/results",{headers:auth()});if(!r.ok)return msg(await r.text());let b=await r.blob(),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="greenish_ref_cor_resultados.jsonl";a.click();URL.revokeObjectURL(a.href);}
+</script></html>""",mimetype="text/html")
 
 @app.get("/status")
 def status():
