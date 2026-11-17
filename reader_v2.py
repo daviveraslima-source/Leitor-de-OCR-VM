@@ -67,24 +67,23 @@ def read_v2(raw,refs,colors,old=None):
     try:
         lines=ocr_lines(raw)
         counts=defaultdict(float);ev=defaultdict(list)
-        prefixes={r[:3] for r in refs if len(r)>6}
-        byprefix=defaultdict(list)
-        for r in refs:byprefix[r[:3]].append(r)
+        # Restrição apenas dos quatro primeiros dígitos depois das letras.
+        # Não procurar "a referência completa mais parecida" no catálogo.
+        from ref_group_rules import build_group_index, read_group
+        groups, suffix_lengths=build_group_index(tuple(sorted(refs)))
         def put(raw,weight,where):
-            raw=re.sub('[^A-Z0-9@]','',raw.upper())
+            raw=re.sub('[^A-Z0-9@©$]','',raw.upper())
             if not raw or not any(c.isdigit() for c in raw):return
-            if raw in refs:
-                counts[raw]+=weight;ev[raw].append(('exact',where));return
-            match=re.match(r'^[A-Z]{2,9}',raw)
-            if match:
-                p=match.group()
-                norm=p+raw[len(p):].translate(DIGITS)
-                if norm in refs:
-                    counts[norm]+=weight*.85;ev[norm].append(('normalized',where));return
-            if raw[:3] not in prefixes:return
-            subset=[r for r in byprefix[raw[:3]] if abs(len(r)-len(raw))<=2]
-            q=process.extractOne(raw,subset,scorer=fuzz.ratio,score_cutoff=82) if subset else None
-            if q:counts[q[0]]+=weight*.23*q[1]/100;ev[q[0]].append(('approx',where))
+            info=read_group(raw,groups,suffix_lengths)
+            if info and info["REF"]:
+                value=info["REF"]  # Todos os dígitos finais vieram do OCR.
+                adjusted=info["status"]=="GRUPO_AJUSTADO_REVISAR"
+                score=weight * (.65 if adjusted else 1.0)
+                counts[value]+=score
+                ev[value].append(("grupo_ajustado_revisar" if adjusted else "grupo_valido",where))
+            elif raw in refs: # Produtos especiais fora do padrão de 4 dígitos.
+                counts[raw]+=weight
+                ev[raw].append(("referencia_excepcional",where))
         for line,name,angle in lines:
             where=f'{name}:{angle}'
             for r in EXPLICIT_REF.findall(line):put(r,6,where)
