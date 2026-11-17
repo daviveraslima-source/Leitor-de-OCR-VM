@@ -14,7 +14,7 @@ TOKEN = os.getenv("GREENISH_STATUS_TOKEN", "")
 STATE = {"stage":"awaiting_dataset", "processed":0, "total":0, "started_at":None}
 LOCK = threading.Lock()
 REF_RE = re.compile(r"(?<![A-Z0-9])([A-Z]{2,9}[A-Z0-9]{1,16})(?![A-Z0-9])")
-TAG_REF = re.compile(r"R[E3]?F\s*[:.=/-]?\s*([A-Z0-9]{4,24})")
+TAG_REF = re.compile(r"R[E3]?F\s*[:.=/-]?\s*([A-Z0-9@©$]{4,24})")
 TAG_COR = re.compile(r"C[O0]R\s*[:.=/-]?\s*([0-9OQDBSILZG]{4})")
 CODE4 = re.compile(r"(?<![0-9])([0-9]{4})(?![0-9])")
 CONV = str.maketrans({"O":"0","Q":"0","D":"0","B":"8","S":"5","I":"1","L":"1","Z":"2","G":"6"})
@@ -54,34 +54,47 @@ def read_image(path):
     return "\n".join(out)
 
 def candidates(text, refs, colors):
+    """Leitura por etapas:
+    1. letras da REF; 2. quatro dígitos do subgrupo; 3. sufixo VISTO.
+    O catálogo não preenche nem adivinha a parte final da referência.
+    """
+    from ref_group_rules import scan_patterns
     rawrefs=TAG_REF.findall(text)
-    rawrefs.extend(t for t in REF_RE.findall(text) if len(t)>5)
-    known=[]
-    for tok in rawrefs:
-        tok=tok.strip().upper()
-        if tok in refs: known.append((tok, "exact"))
-        elif refs:
-            family=tok[:3]
-            subset=(r for r in refs if r.startswith(family) and abs(len(r)-len(tok))<=1)
-            match=process.extractOne(tok,subset,scorer=fuzz.ratio,score_cutoff=93)
-            if match: known.append((match[0],"suggestion"))
-        else: known.append((tok, "unverified"))
+    found=scan_patterns(text,refs)
+    labels=set(rawrefs)
+    # Privilegia código realmente visível perto de "REF". Catálogo só valida,
+    # nunca sugere ou substitui o sufixo por outra referência parecida.
+    ranked=sorted(found,key=lambda x:(
+        0 if x["token"] in labels else 1,
+        0 if x["status"]=="GRUPO_LIDO" else 1,
+        0 if x["REF"] and x["REF"] in refs else 1,
+        0 if x["REF"] else 1,
+    ))
+    chosen=next((v for v in ranked if v["REF"]),None)
+    # Códigos excepcionais, como LINUS2, não seguem a regra de 4 dígitos.
+    legacy=next((c for c in rawrefs if c in refs),None)
+    ref=chosen["REF"] if chosen else legacy
+    pattern=chosen if chosen else (ranked[0] if ranked else None)
     rawcolors=[c.translate(CONV) for c in TAG_COR.findall(text)]
-    ref=Counter(r for r,k in known if k=="exact").most_common(1)
-    if not ref:
-        ref=Counter(r for r,k in known).most_common(1)
-    ref=ref[0][0] if ref else None
-    cor=Counter(c for c in rawcolors if len(c)==4 and c.isdigit()).most_common(1)
-    cor=cor[0][0] if cor else None
-    if not cor and ref and ref in colors:
-        # Without visually read 4 digits, never fill them in from the catalog.
-        pass
-    status="REVISAR"
-    if ref and cor and (not refs or (ref in refs and cor in colors.get(ref,{}))):
-        if (ref, "exact") in known and cor in TAG_COR.findall(text):
-            status="CANDIDATO_EXATO"
-        else: status="VERIFICAR_VISUALMENTE"
-    return {"REF":ref,"COR":cor,"status":status,"raw_ref_candidates":rawrefs[:12],"raw_color_candidates":rawcolors[:12]}
+    color_count=Counter(c for c in rawcolors if len(c)==4 and c.isdigit())
+    cor=color_count.most_common(1)[0][0] if color_count else None
+    if ref and cor:
+        status="CANDIDATO_CATALOGO_REVISAR" if ref in refs and cor in colors.get(ref,{}) else "DIVERGENCIA_CATALOGO_REVISAR"
+    elif ref or cor:
+        status="INCOMPLETO_REVISAR"
+    else:
+        status="SEM_LEITURA"
+    if pattern and pattern["status"]=="GRUPO_AJUSTADO_REVISAR":
+        status="CORRECAO_SUBGRUPO_REVISAR"
+    return {
+        "REF":ref,"COR":cor,"status":status,
+        "prefixo":pattern["family"] if pattern else None,
+        "subgrupo":pattern["group"] if pattern else None,
+        "etapa_ref":pattern["status"] if pattern else ("REFERENCIA_ESPECIAL" if legacy else "REF_NAO_LIDA"),
+        "subgrupos_possiveis":pattern["possible_groups"] if pattern else [],
+        "raw_ref_candidates":rawrefs[:12],
+        "raw_color_candidates":rawcolors[:12],
+    }
 
 def run_job(zip_path):
     try:
